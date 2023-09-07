@@ -16,6 +16,7 @@ package release
 
 import (
 	"fmt"
+	"strconv"
 
 	"helm.sh/helm/v3/pkg/chart/loader"
 	helmrelease "helm.sh/helm/v3/pkg/release"
@@ -24,9 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	crmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"log"
+
 	"github.com/operator-framework/operator-sdk/internal/helm/client"
 	"github.com/operator-framework/operator-sdk/internal/helm/internal/types"
 )
+
+const helmRollbackForceAnnotation = "helm.sdk.operatorframework.io/rollback-force"
 
 // ManagerFactory creates Managers that are specific to custom resources. It is
 // used by the HelmOperatorReconciler during resource reconciliation, and it
@@ -74,6 +79,11 @@ func (f managerFactory) NewManager(cr *unstructured.Unstructured, overrideValues
 	}
 	values := mergeMaps(crValues, expOverrides)
 
+	// the forceRollback variable takes the value of the annotation,
+	// "helm.sdk.operatorframework.io/rollback-force".
+	// The default value for the annotation is true
+	forceRollback := readBoolAnnotationWithDefault(cr, helmRollbackForceAnnotation, true)
+
 	return &manager{
 		actionConfig:   actionConfig,
 		storageBackend: actionConfig.Releases,
@@ -82,9 +92,10 @@ func (f managerFactory) NewManager(cr *unstructured.Unstructured, overrideValues
 		releaseName: releaseName,
 		namespace:   cr.GetNamespace(),
 
-		chart:  crChart,
-		values: values,
-		status: types.StatusFor(cr),
+		chart:         crChart,
+		values:        values,
+		status:        types.StatusFor(cr),
+		forceRollback: forceRollback,
 	}, nil
 }
 
@@ -171,4 +182,19 @@ func mergeMaps(a, b map[string]interface{}) map[string]interface{} {
 		out[k] = v
 	}
 	return out
+}
+
+// readBoolAnnotationWithDefault reads the annotation for
+func readBoolAnnotationWithDefault(obj *unstructured.Unstructured, annotation string, fallback bool) bool {
+	val, ok := obj.GetAnnotations()[annotation]
+	if !ok {
+		return fallback
+	}
+	r, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Printf("error parsing annotation; %v", err)
+		return fallback
+	}
+
+	return r
 }

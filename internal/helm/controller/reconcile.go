@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	rpb "helm.sh/helm/v3/pkg/release"
@@ -64,7 +63,6 @@ const (
 	uninstallFinalizerLegacy = "uninstall-helm-release"
 
 	helmUpgradeForceAnnotation    = "helm.sdk.operatorframework.io/upgrade-force"
-	helmRollbackForceAnnotation   = "helm.sdk.operatorframework.io/rollback-force"
 	helmUninstallWaitAnnotation   = "helm.sdk.operatorframework.io/uninstall-wait"
 	helmReconcilePeriodAnnotation = "helm.sdk.operatorframework.io/reconcile-period"
 )
@@ -313,17 +311,8 @@ func (r HelmOperatorReconciler) Reconcile(ctx context.Context, request reconcile
 				"Chart value %q overridden to %q by operator's watches.yaml", k, v)
 		}
 		force := hasAnnotation(helmUpgradeForceAnnotation, o)
-		upgradeOptions := []release.UpgradeOption{
-			release.ForceUpgrade(force),
-		}
 
-		// the forceRollback variable takes the value of the annotation,
-		// "helm.sdk.operatorframework.io/rollback-force".
-		// The default value for the annotation is true
-		forceRollback := readBoolAnnotationWithDefault(o, helmRollbackForceAnnotation, true)
-		upgradeOptions = append(upgradeOptions, release.ForceRollback(forceRollback))
-
-		previousRelease, upgradedRelease, err := manager.UpgradeRelease(ctx, upgradeOptions...)
+		previousRelease, upgradedRelease, err := manager.UpgradeRelease(ctx, release.ForceUpgrade(force))
 		if err != nil {
 			log.Error(err, "Release failed")
 			status.SetCondition(types.HelmAppCondition{
@@ -456,21 +445,6 @@ func hasAnnotation(anno string, o *unstructured.Unstructured) bool {
 		value = i
 	}
 	return value
-}
-
-func readBoolAnnotationWithDefault(obj *unstructured.Unstructured, annotation string, fallback bool) bool {
-	val, ok := obj.GetAnnotations()[annotation]
-	if !ok {
-		return fallback
-	}
-	r, err := strconv.ParseBool(val)
-	if err != nil {
-		log.Error(
-			fmt.Errorf(strings.ToLower(err.Error())), "error parsing annotation", "annotation", annotation)
-		return fallback
-	}
-
-	return r
 }
 
 func (r HelmOperatorReconciler) updateResource(ctx context.Context, o client.Object) error {
